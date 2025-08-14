@@ -18,6 +18,10 @@ from zoneinfo import ZoneInfo
 
 import google.auth
 from google.adk.agents import Agent
+from google.adk.tools.tool_context import ToolContext
+from google.adk.agents import SequentialAgent
+
+
 
 _, project_id = google.auth.default()
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
@@ -25,42 +29,60 @@ os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
 
-def get_weather(query: str) -> str:
-    """Simulates a web search. Use it get information on weather.
+def append_to_state(
+    tool_context: ToolContext, field: str, response: str
+) -> dict[str, str]:
+    """Append new output to an existing state key.
 
     Args:
-        query: A string containing the location to get weather information for.
+        field (str): a field name to append to
+        response (str): a string to append to the field
 
     Returns:
-        A string with the simulated weather information for the queried location.
+        dict[str, str]: {"status": "success"}
     """
-    if "sf" in query.lower() or "san francisco" in query.lower():
-        return "It's 60 degrees and foggy."
-    return "It's 90 degrees and sunny."
+    existing_state = tool_context.state.get(field, [])
+    tool_context.state[field] = existing_state + [response]
+    logging.info(f"[Added to {field}] {response}")
+    return {"status": "success"}
 
+patientMedicalSummary = Agent(
+    name="root_agent",
+    model="gemini-2.5-flash",
+    instruction="""
+    You are the one who will communicate patient using PATIENT_DEMOGRAPHICS, PROVIDER_INFO, and PATIENT_MEDICAL_HISTORY and DECISION state if they have to go and meet with provider to discuss.
+    """,
+    tools=[],
+)
 
-def get_current_time(query: str) -> str:
-    """Simulates getting the current time for a city.
+diagnostic_report = Agent(
+    name="root_agent",
+    model="gemini-2.5-flash",
+    instruction="""
+    You are the provider you need to review the patient medical history and current medications and make a decision if patient need to see provider or not.
 
-    Args:
-        city: The name of the city to get the current time for.
+    you save the decision as true or false in the state key 'DECISION'
+    """,
+    tools=[append_to_state],
+)
 
-    Returns:
-        A string with the current time information.
-    """
-    if "sf" in query.lower() or "san francisco" in query.lower():
-        tz_identifier = "America/Los_Angeles"
-    else:
-        return f"Sorry, I don't have timezone information for query: {query}."
-
-    tz = ZoneInfo(tz_identifier)
-    now = datetime.datetime.now(tz)
-    return f"The current time for query {query} is {now.strftime('%Y-%m-%d %H:%M:%S %Z%z')}"
-
+processData = SequentialAgent(
+    name="film_concept_team",
+    description="Write a film plot outline and save it as a text file.",
+    sub_agents=[
+        diagnostic_report,
+        patientMedicalSummary
+    ],
+)
 
 root_agent = Agent(
     name="root_agent",
     model="gemini-2.5-flash",
-    instruction="You are a helpful AI assistant designed to provide accurate and useful information.",
-    tools=[get_weather, get_current_time],
+    instruction=""""
+    - Asking user for patient demographics and use 'append_to_state' tool to store the user's response in the 'PATIENT_DEMOGRAPHICS' state key.
+    - Asking user for provider info that patient last visit and use 'append_to_state' tool to store the user's response in the 'PROVIDER_INFO' state key.
+    - Asking user for patient medical history and use 'append_to_state' tool to store the user's response in the 'PATIENT_MEDICAL_HISTORY' state key.
+    """,
+    tools=[append_to_state],
+    sub_agents=[patientMedicalSummary],
 )
