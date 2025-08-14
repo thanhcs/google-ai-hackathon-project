@@ -20,6 +20,8 @@ import google.auth
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
 from google.adk.agents import SequentialAgent
+from google.adk.tools import google_search
+
 
 
 
@@ -59,11 +61,11 @@ diagnostic_report = Agent(
     name="root_agent",
     model="gemini-2.5-flash",
     instruction="""
-    You are the provider you need to review the patient medical history and current medications and make a decision if patient need to see provider or not.
+    You are the provider you need to review the patient medical history and current medications and make a decision if patient need to see provider or not. Use the google search to find the standard values of each report item.
 
-    you save the decision as true or false in the state key 'DECISION'
+    you save the decision if patient needs to see provider or not as true or false in the state key 'DECISION'
     """,
-    tools=[append_to_state],
+    tools=[append_to_state, google_search],
 )
 
 processData = SequentialAgent(
