@@ -45,14 +45,13 @@ def append_to_state(
     """
     existing_state = tool_context.state.get(field, [])
     tool_context.state[field] = existing_state + [response]
-    logging.info(f"[Added to {field}] {response}")
     return {"status": "success"}
 
 patientMedicalSummary = Agent(
     name="root_agent",
     model="gemini-2.5-flash",
     instruction="""
-    You are the one who will communicate patient using PATIENT_DEMOGRAPHICS, PROVIDER_INFO, and PATIENT_MEDICAL_HISTORY and DECISION state if they have to go and meet with provider to discuss.
+    You are the one who will summarize patient demographics and provider info using PATIENT_DEMOGRAPHICS, PROVIDER_INFO, and PATIENT_MEDICAL_HISTORY and DECISION state if they have to go and meet with provider to discuss.
     """,
     tools=[],
 )
@@ -63,14 +62,14 @@ diagnostic_report = Agent(
     instruction="""
     You are the provider you need to review the patient medical history and current medications and make a decision if patient need to see provider or not. Use the google search to find the standard values of each report item.
 
-    you save the decision if patient needs to see provider or not as true or false in the state key 'DECISION'
+    you save the decision if patient needs to see provider, transfer to patientMedicalSummary agent, if not, just say thank you
     """,
-    tools=[append_to_state, google_search],
+    tools=[google_search],
 )
 
-processData = SequentialAgent(
-    name="film_concept_team",
-    description="Write a film plot outline and save it as a text file.",
+process_data = SequentialAgent(
+    name="process_data",
+    description="Process patient data and generate the decision key using diagnostic_report and then summarize the report using patientMedicalSummary.",
     sub_agents=[
         diagnostic_report,
         patientMedicalSummary
@@ -81,10 +80,14 @@ root_agent = Agent(
     name="root_agent",
     model="gemini-2.5-flash",
     instruction=""""
+    -- Input pasted in the chat as a json format use that
     - Asking user for patient demographics and use 'append_to_state' tool to store the user's response in the 'PATIENT_DEMOGRAPHICS' state key.
     - Asking user for provider info that patient last visit and use 'append_to_state' tool to store the user's response in the 'PROVIDER_INFO' state key.
     - Asking user for patient medical history and use 'append_to_state' tool to store the user's response in the 'PATIENT_MEDICAL_HISTORY' state key.
+    - If user want to upload the file with json format with all information about patient demographics, provider info, and patient medical history, use 'append_to_state' tool to store the file content in the 'PATIENT_DEMOGRAPHICS' state key, 'PROVIDER_INFO' state key, and 'PATIENT_MEDICAL_HISTORY' state key.
+
+    After saving it, transfer to process_data agent
     """,
     tools=[append_to_state],
-    sub_agents=[patientMedicalSummary],
+    sub_agents=[process_data]
 )
